@@ -5,18 +5,13 @@ import json
 import os
 import io
 
-# =====================
-# DATA MANAGEMENT
-# =====================
 DATA_FILE = "status_report_data.json"
 
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            try:
-                return json.load(f)
-            except:
-                return {}
+            try: return json.load(f)
+            except: return {}
     return {}
 
 def save_data(data):
@@ -24,133 +19,94 @@ def save_data(data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 # =====================
-# MODAL (編集用画面)
+# MODAL (編集画面)
 # =====================
 class StatusEditModal(ui.Modal):
-    def __init__(self, message_id: str, current_title: str, current_content: str):
-        super().__init__(title="現状報告の中身を編集")
+    def __init__(self, message_id: str, data: dict):
+        super().__init__(title="現状報告の全編集")
         self.message_id = message_id
         
-        self.title_input = ui.TextInput(
-            label="自分だけに表示されるEmbedのタイトル",
-            default=current_title,
-            placeholder="例：現在の取引状況について",
-            max_length=100
-        )
-        self.content_input = ui.TextInput(
-            label="自分だけに表示される本文（絵文字使用可）",
-            style=discord.TextStyle.long,
-            default=current_content,
-            placeholder="例：現在スタッフが少ないため、対応に5分ほど頂いております。 <:emoji_name:id>",
-            max_length=2000
-        )
-        self.add_item(self.title_input)
-        self.add_item(self.content_input)
+        # 公開パネルのタイトル
+        self.p_title = ui.TextInput(label="公開パネルのタイトル", default=data.get("p_title", ""), max_length=100)
+        # 公開パネルの説明
+        self.p_desc = ui.TextInput(label="公開パネルの説明文", style=discord.TextStyle.long, default=data.get("p_desc", ""), max_length=1000)
+        # 隠しメッセージのタイトル（絵文字不可）
+        self.h_title = ui.TextInput(label="隠しメッセージのタイトル(絵文字不可)", default=data.get("hidden_title", ""), max_length=100)
+        # 隠しメッセージの本文（絵文字OK！）
+        self.h_content = ui.TextInput(label="隠しメッセージの本文(絵文字OK)", style=discord.TextStyle.long, default=data.get("hidden_content", ""), max_length=2000)
+        
+        for item in [self.p_title, self.p_desc, self.h_title, self.h_content]:
+            self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         data = load_data()
-        if self.message_id in data:
-            data[self.message_id]["hidden_title"] = self.title_input.value
-            data[self.message_id]["hidden_content"] = self.content_input.value
-            save_data(data)
-            await interaction.response.send_message(f"✅ パネル（ID: {self.message_id}）の内容を更新しました。", ephemeral=True)
-        else:
-            await interaction.response.send_message("❌ データが見つかりませんでした。", ephemeral=True)
+        mid = self.message_id
+        
+        # データを更新
+        data[mid] = {
+            "p_title": self.p_title.value,
+            "p_desc": self.p_desc.value,
+            "hidden_title": self.h_title.value,
+            "hidden_content": self.h_content.value
+        }
+        save_data(data)
+
+        # 【重要】チャンネルに見えている「元のパネル」を即座に書き換える
+        try:
+            target_msg = await interaction.channel.fetch_message(int(mid))
+            new_embed = discord.Embed(title=self.p_title.value, description=self.p_desc.value, color=discord.Color.blue())
+            new_embed.set_footer(text="Status System (Updated)")
+            await target_msg.edit(embed=new_embed)
+            await interaction.response.send_message("✅ 公開パネルと隠し内容の両方を更新しました。", ephemeral=True)
+        except:
+            await interaction.response.send_message("✅ 隠し内容は更新しましたが、元のメッセージが見つかりませんでした。", ephemeral=True)
 
 # =====================
-# VIEW (永続ボタン)
+# VIEW
 # =====================
 class StatusPanelView(ui.View):
     def __init__(self, message_id: str):
-        super().__init__(timeout=None) # 永続化
+        super().__init__(timeout=None)
         self.message_id = str(message_id)
 
     @ui.button(label="詳細な状況を確認する", style=discord.ButtonStyle.success, custom_id="status_report_btn")
     async def show_status(self, interaction: discord.Interaction, button: ui.Button):
         data = load_data()
-        panel_info = data.get(self.message_id)
+        panel = data.get(self.message_id)
+        if not panel: return await interaction.response.send_message("❌ データなし", ephemeral=True)
 
-        if not panel_info:
-            return await interaction.response.send_message("❌ この報告パネルのデータは存在しません。", ephemeral=True)
-
-        # 自分にだけ見える（Ephemeral）Embed
-        embed = discord.Embed(
-            title=panel_info["hidden_title"],
-            description=panel_info["hidden_content"],
-            color=discord.Color.green()
-        )
-        embed.set_footer(text="※このメッセージはあなただけに表示されています。")
-        
+        embed = discord.Embed(title=panel["hidden_title"], description=panel["hidden_content"], color=discord.Color.green())
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # =====================
-# COG (メイン機能)
+# COG
 # =====================
 class StatusReport(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="status_setup", description="現状報告パネルを新規設置します（管理者のみ）")
-    @app_commands.describe(
-        public_title="チャンネルに見えるタイトルの設定",
-        public_desc="チャンネルに見える説明文の設定",
-        hidden_title="ボタンを押した後に見えるタイトルの初期値",
-        hidden_content="ボタンを押した後に見える内容の初期値"
-    )
+    @app_commands.command(name="status_setup", description="現状報告パネルを新規設置")
     @app_commands.default_permissions(administrator=True)
-    async def status_setup(
-        self, interaction: discord.Interaction, 
-        public_title: str, 
-        public_desc: str, 
-        hidden_title: str, 
-        hidden_content: str
-    ):
-        # 設置するEmbed
-        embed = discord.Embed(
-            title=public_title,
-            description=f"{public_desc}\n\n下のボタンから詳細な現状を確認できます。",
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text="Status System")
-
-        await interaction.response.send_message("⌛ パネルを生成中...", ephemeral=True)
-        
-        # チャンネルにパネルを送信
+    async def status_setup(self, interaction: discord.Interaction, title: str, description: str):
+        embed = discord.Embed(title=title, description=description, color=discord.Color.blue())
+        await interaction.response.send_message("⌛ 作成中...", ephemeral=True)
         msg = await interaction.channel.send(embed=embed)
         
-        # データを保存
         data = load_data()
-        data[str(msg.id)] = {
-            "hidden_title": hidden_title,
-            "hidden_content": hidden_content
-        }
+        data[str(msg.id)] = {"p_title": title, "p_desc": description, "hidden_title": "未設定", "hidden_content": "未設定"}
         save_data(data)
 
-        # 正式なView（メッセージID紐付け）に更新
-        view = StatusPanelView(msg.id)
-        await msg.edit(view=view)
-        
-        await interaction.edit_original_response(content=f"✅ 設置完了しました。\n**パネルID:** `{msg.id}`\n編集時はこのIDを使用してください。")
+        await msg.edit(view=StatusPanelView(msg.id))
+        await interaction.edit_original_response(content=f"✅ 設置完了。ID: `{msg.id}`")
 
-    @app_commands.command(name="status_edit", description="設置済みパネルの『自分だけにしか見えない内容』を編集します")
-    @app_commands.describe(panel_id="編集したいパネルのメッセージID（またはパネルID）")
+    @app_commands.command(name="status_edit", description="パネル内容を丸ごと編集")
     @app_commands.default_permissions(administrator=True)
     async def status_edit(self, interaction: discord.Interaction, panel_id: str):
         data = load_data()
-        panel_info = data.get(panel_id)
-
-        if not panel_info:
-            return await interaction.response.send_message("❌ そのIDのパネルは見つかりませんでした。", ephemeral=True)
-
-        # 編集用Modalを出す
-        await interaction.response.send_modal(
-            StatusEditModal(panel_id, panel_info["hidden_title"], panel_info["hidden_content"])
-        )
+        if panel_id not in data: return await interaction.response.send_message("❌ ID不明", ephemeral=True)
+        await interaction.response.send_modal(StatusEditModal(panel_id, data[panel_id]))
 
 async def setup(bot):
-    # サーバー起動時に、保存されている全パネルのViewを有効化する
     data = load_data()
-    for msg_id in data.keys():
-        bot.add_view(StatusPanelView(msg_id))
-        
+    for mid in data.keys(): bot.add_view(StatusPanelView(mid))
     await bot.add_cog(StatusReport(bot))
