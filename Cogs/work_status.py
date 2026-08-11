@@ -81,7 +81,7 @@ class WorkStatus(commands.Cog):
         data[str(interaction.guild.id)] = target_channel.id
         save_data(data)
 
-        # ここを .gray() から .grey() に修正しました
+        # 【重要】 .gray() ではなく .grey() に修正済み
         embed = discord.Embed(
             title="🎬 動画編集 報告パネル",
             description=f"作業を開始・終了する際に、下のボタンを押してください。\n報告は {target_channel.mention} に送信されます。",
@@ -89,7 +89,7 @@ class WorkStatus(commands.Cog):
         )
         embed.set_footer(text="Work Status System")
         
-        # パネルを設置
+        # パネルを現在のチャンネルに設置
         await interaction.channel.send(embed=embed, view=WorkControlView())
         await interaction.response.send_message(f"✅ パネルを設置しました。報告先: {target_channel.mention}", ephemeral=True)
 
