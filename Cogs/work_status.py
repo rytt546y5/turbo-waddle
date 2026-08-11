@@ -28,40 +28,42 @@ class WorkControlView(ui.View):
         super().__init__(timeout=None) # 永続化
 
     async def send_report(self, interaction: discord.Interaction, status_text: str):
+        # 最初に応答を返し、処理中であることを伝える（「応答に失敗」を防ぐ）
+        await interaction.response.send_message(f"⌛ {status_text}報告を送信中...", ephemeral=True)
+
         data = load_data()
         gid = str(interaction.guild.id)
-        # 保存されている報告先チャンネルIDを取得
         channel_id = data.get(gid)
 
         if not channel_id:
-            return await interaction.response.send_message("❌ 報告先のチャンネルが設定されていません。パネルを再設置してください。", ephemeral=True)
+            return await interaction.edit_original_response(content="❌ 報告先のチャンネルが設定されていません。パネルを再設置してください。")
 
         target_channel = interaction.guild.get_channel(int(channel_id))
         if not target_channel:
-            return await interaction.response.send_message("❌ 報告先のチャンネルが見つかりません。", ephemeral=True)
+            return await interaction.edit_original_response(content="❌ 報告先のチャンネルが見つかりません。")
 
-        # 報告用Embed (赤色固定)
+        # 報告用Embed (赤色固定: 0xff0000)
         embed = discord.Embed(
             title="進行状況のお知らせ",
             description=f"{interaction.user.mention} が動画編集を{status_text}。",
-            color=discord.Color.red()
+            color=0xff0000 
         )
         
         try:
             # 指定されたチャンネルに送信
             await target_channel.send(embed=embed)
-            # 応答を返す
-            await interaction.response.send_message(f"✅ {status_text}報告を送信しました。", ephemeral=True)
+            # 完了通知
+            await interaction.edit_original_response(content=f"✅ {status_text}報告を送信しました。")
         except discord.Forbidden:
-            await interaction.response.send_message("❌ 報告先チャンネルへの送信権限がありません。", ephemeral=True)
+            await interaction.edit_original_response(content="❌ 報告先チャンネルへの送信権限がありません。")
         except Exception as e:
-            await interaction.response.send_message(f"❌ エラーが発生しました: {e}", ephemeral=True)
+            await interaction.edit_original_response(content=f"❌ エラーが発生しました: {e}")
 
-    @ui.button(label="動画編集を開始", style=discord.ButtonStyle.danger, custom_id="work_start_v2")
+    @ui.button(label="動画編集を開始", style=discord.ButtonStyle.danger, custom_id="work_start_vfinal")
     async def start_work(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.send_report(interaction, "はじめました")
 
-    @ui.button(label="動画編集を終了", style=discord.ButtonStyle.secondary, custom_id="work_end_v2")
+    @ui.button(label="動画編集を終了", style=discord.ButtonStyle.secondary, custom_id="work_end_vfinal")
     async def end_work(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.send_report(interaction, "終了しました")
 
@@ -81,11 +83,11 @@ class WorkStatus(commands.Cog):
         data[str(interaction.guild.id)] = target_channel.id
         save_data(data)
 
-        # 【重要】 .gray() ではなく .grey() に修正済み
+        # パネル自体も赤色（0xff0000）で作成
         embed = discord.Embed(
             title="🎬 動画編集 報告パネル",
             description=f"作業を開始・終了する際に、下のボタンを押してください。\n報告は {target_channel.mention} に送信されます。",
-            color=discord.Color.grey()
+            color=0xff0000 
         )
         embed.set_footer(text="Work Status System")
         
